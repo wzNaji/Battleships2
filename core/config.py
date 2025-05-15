@@ -1,0 +1,2 @@
+GRID_SIZE = 7
+SHIP_LENGHTS = [4,3,2]
