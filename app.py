@@ -12,8 +12,8 @@ if "reset_cells" not in st.session_state:
     st.session_state.reset_cells = False
 if "computer_ships" not in st.session_state:
     st.session_state.computer_ships = computer_ships_placement()
-    st.session_state.hits = set()
-    st.session_state.misses = set()
+    st.session_state.player_hits_opponent = set()
+    st.session_state.player_misses_opponent = set()
     st.session_state.turn = "player"  # placement phase
 
 # Clear cells if flagged
@@ -65,6 +65,7 @@ if st.button("Place Ship", disabled=not can_place):
         st.session_state.remaining.pop(0)
         st.success(f"Placed {next_len}-cell ship at {selected_cells}")
         st.session_state.reset_cells = True
+
         st.rerun()
     except Exception as e:
         st.error(str(e))

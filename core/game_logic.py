@@ -6,7 +6,7 @@ Coordinate = tuple[int,int]
 Ships_dt = list[list[Coordinate]]
 
 ships : Ships_dt = []
-
+opponent_ships : Ships_dt = []
 
 def player_ships_placement(cells: list[Coordinate]) -> bool:
     """
@@ -55,7 +55,7 @@ def player_ships_placement(cells: list[Coordinate]) -> bool:
 
 def computer_ships_placement() -> Ships_dt:
     """Randomly place all ships for the computer."""
-    ships: Ships_dt = []
+    
 
     for length in SHIP_LENGTHS:
         placed = False
@@ -75,11 +75,11 @@ def computer_ships_placement() -> Ships_dt:
             # Check overlap with any existing ship
             overlap = any(
                 coord in existing
-                for existing in ships
+                for existing in opponent_ships
                 for coord in coords
             )
             if not overlap:
-                ships.append(coords)
+                opponent_ships.append(coords)
                 placed = True
 
-    return ships
+    return opponent_ships
