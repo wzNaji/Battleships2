@@ -1,16 +1,22 @@
 import streamlit as st
-from core.game_logic import player_ships_placement
+from core.game_logic import player_ships_placement, computer_ships_placement
 from core.config import GRID_SIZE, SHIP_LENGTHS
+from core.render import render_opponent_grid, render_player_grid
 
-# 0) Initialize session-state buckets    
+# Initialize session-state buckets
 if "ships" not in st.session_state:
     st.session_state.ships = []              # already placed coords
 if "remaining" not in st.session_state:
     st.session_state.remaining = list(SHIP_LENGTHS)
 if "reset_cells" not in st.session_state:
     st.session_state.reset_cells = False
+if "computer_ships" not in st.session_state:
+    st.session_state.computer_ships = computer_ships_placement()
+    st.session_state.hits = set()
+    st.session_state.misses = set()
+    st.session_state.turn = "player"  # placement phase
 
-# 1) Clear cells if flagged
+# Clear cells if flagged
 if st.session_state.reset_cells:
     for r in range(GRID_SIZE):
         for c in range(GRID_SIZE):
@@ -18,16 +24,26 @@ if st.session_state.reset_cells:
     st.session_state.reset_cells = False
     st.rerun()
 
-st.title("Battleship Placement – 7×7")
+st.title("Battleship – 7×7")
 
+# Switch to battle mode once all ships are placed
 if not st.session_state.remaining:
-    st.success("✅ All ships placed! Ready to battle.")
+    st.session_state.turn = "battle"
+
+# Battle phase: early exit after rendering
+if st.session_state.turn == "battle":
+    st.header("Fire at the enemy!")
+    render_opponent_grid()
+    st.write(" ")
+    st.write("Your board")
+    render_player_grid()
     st.stop()
 
+# ----------------------------------------- Placement phase -----------------------------------------------------
 next_len = st.session_state.remaining[0]
 st.write(f"Select exactly **{next_len}** cells for your next ship.")
 
-# 2) Draw grid & collect this‐turn selections
+# Draw grid & collect this-turn selections
 selected_cells: list[tuple[int,int]] = []
 for r in range(GRID_SIZE):
     cols = st.columns(GRID_SIZE)
@@ -40,7 +56,7 @@ for r in range(GRID_SIZE):
             if col.checkbox(f"Select cell {r},{c}", key=key, label_visibility="collapsed"):
                 selected_cells.append((r, c))
 
-# 3) Place Ship button, only enabled when count matches next_len
+# Place Ship button, only enabled when count matches next_len
 can_place = len(selected_cells) == next_len
 if st.button("Place Ship", disabled=not can_place):
     try:

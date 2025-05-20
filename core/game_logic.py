@@ -52,3 +52,34 @@ def player_ships_placement(cells: list[Coordinate]) -> bool:
     # alt spiller - placer skibet
     ships.append(cells)
     return True
+
+def computer_ships_placement() -> Ships_dt:
+    """Randomly place all ships for the computer."""
+    ships: Ships_dt = []
+
+    for length in SHIP_LENGTHS:
+        placed = False
+        while not placed:
+            # Randomly choose horizontal or vertical
+            horizontal = random.choice([True, False])
+
+            if horizontal:
+                row = random.randint(0, GRID_SIZE - 1)
+                col = random.randint(0, GRID_SIZE - length)
+                coords = [(row, col + i) for i in range(length)]
+            else:
+                row = random.randint(0, GRID_SIZE - length)
+                col = random.randint(0, GRID_SIZE - 1)
+                coords = [(row + i, col) for i in range(length)]
+
+            # Check overlap with any existing ship
+            overlap = any(
+                coord in existing
+                for existing in ships
+                for coord in coords
+            )
+            if not overlap:
+                ships.append(coords)
+                placed = True
+
+    return ships
