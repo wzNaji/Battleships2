@@ -1,65 +1,49 @@
 import streamlit as st
 from core.config import GRID_SIZE
-from core.game_logic import is_single_opponent_ship_sunken, all_opponent_ships_sunk
+from core.game_logic.ship_checks import all_opponent_ships_sunk
+
 def render_player_grid():
-    """
-    Shows the player’s ships as 🚢 and empty cells as non-interactive placeholders.
-    """
-    # 1) If we’ve already won, don’t draw the grid at all
     if st.session_state.end_game_message == "U WON!":
         return
 
-    # Read player ships from session state
     ships = st.session_state.ships
     for r in range(GRID_SIZE):
         cols = st.columns(GRID_SIZE)
         for c, col in enumerate(cols):
-            coord = (r, c)
-            if any(coord in ship for ship in ships):
+            if any((r, c) in ship for ship in ships):
                 col.markdown("🚢")
             else:
-                # placeholder cell
                 col.markdown(" ")
 
-
 def render_opponent_grid():
-    """
-    Renders the opponent’s grid: untargeted cells are fire buttons; hits show 🔥; misses show ○.
-    Clicking a button fires at that coordinate.
-    """
-
-     # 1) If we’ve already won, don’t draw the grid at all
     if st.session_state.end_game_message == "U WON!":
         return
-    
+
     hits = st.session_state.player_hits_opponent
     misses = st.session_state.player_misses_opponent
-    comp_ships = st.session_state.opponent_ships
-    print(comp_ships) # skal fjernes efter kontrol
+    ships = st.session_state.opponent_ships
+
     for r in range(GRID_SIZE):
         cols = st.columns(GRID_SIZE)
         for c, col in enumerate(cols):
             coord = (r, c)
             if coord in hits:
                 col.markdown("🔥")
-                if is_single_opponent_ship_sunken(coord): # skal fjernes efter kontrol
-                    print("skib sunket")
-                    if all_opponent_ships_sunk(): #fjern identation & IF sætning og prints
-                        st.session_state.end_game_message = "U WON!"
-                        # only rerun once
-                        if not st.session_state.game_over_rerun_done:
-                            st.session_state.game_over_rerun_done = True
-                            st.rerun()
-                        else:
-                            return
             elif coord in misses:
                 col.markdown("○")
             else:
-                # Untargeted: offer a fire button
                 if col.button("", key=f"fire_{r}_{c}"):
-                    if any(coord in ship for ship in comp_ships):
+                    if any(coord in ship for ship in ships):
                         st.session_state.player_hits_opponent.add(coord)
                     else:
                         st.session_state.player_misses_opponent.add(coord)
-                    
+
+                    if all_opponent_ships_sunk():
+                        st.session_state.end_game_message = "U WON!"
+                        if not st.session_state.game_over_rerun_done:
+                            st.session_state.game_over_rerun_done = True
+                            st.rerun()
+                    # hand off to computer
+                    st.session_state.current_turn = "computer"
                     st.rerun()
+                    return

@@ -1,77 +1,79 @@
 import streamlit as st
-from core.game_logic import player_ships_placement, opponent_ships_placement, simple_probability_grid, create_guesses_grid
 from core.config import GRID_SIZE, SHIP_LENGTHS
+from core.game_logic.game_logic import (
+    player_ships_placement,
+    opponent_ships_placement,
+    opponent_move,
+)
 from core.render import render_opponent_grid, render_player_grid
 
-# Initialize session-state buckets
-if 'game_over_rerun_done' not in st.session_state:
-    st.session_state.game_over_rerun_done = False
-if "ships" not in st.session_state:
-    st.session_state.ships = []              # already placed coords
-    st.session_state.end_game_message = " "
-if "remaining" not in st.session_state:
-    st.session_state.remaining = list(SHIP_LENGTHS)
-if "reset_cells" not in st.session_state:
-    st.session_state.reset_cells = False
-if "opponent_ships" not in st.session_state:
-    st.session_state.opponent_ships = opponent_ships_placement()
-    st.session_state.player_hits_opponent = set()
-    st.session_state.player_misses_opponent = set()
-    st.session_state.turn = "player"  # placement phase
+# --- Session‐state initialization ---
+st.session_state.setdefault("game_over_rerun_done", False)
+st.session_state.setdefault("current_turn", "player")
+st.session_state.setdefault("ships", [])
+st.session_state.setdefault("remaining", list(SHIP_LENGTHS))
+st.session_state.setdefault("placement_turn", "placement")
+st.session_state.setdefault("end_game_message", "")
+st.session_state.setdefault("player_hits_opponent", set())
+st.session_state.setdefault("player_misses_opponent", set())
+st.session_state.setdefault("opponent_hits_player", set())
+st.session_state.setdefault("opponent_misses_player", set())
 
-# Clear cells if flagged
-if st.session_state.reset_cells:
-    for r in range(GRID_SIZE):
-        for c in range(GRID_SIZE):
-            st.session_state[f"cell_{r}_{c}"] = False
-    st.session_state.reset_cells = False
-    st.rerun()
+# Place opponent ships once
+if not st.session_state.get("opponent_ships"):
+    st.session_state.opponent_ships = opponent_ships_placement()
 
 st.title("Battleship – 7×7")
+if st.session_state.get("end_game_message"):
+    st.write(st.session_state.get("end_game_message"))
+# -------------------------------- Placement Phase --------------------------------
+if st.session_state.placement_turn == "placement":
+    next_len = st.session_state.remaining[0]
+    st.write(f"Select exactly **{next_len}** cells for your next ship.")
 
-# Switch to battle mode once all ships are placed
-if not st.session_state.remaining:
-    st.session_state.turn = "battle"
+    selected_cells: list[tuple[int,int]] = []
+    for r in range(GRID_SIZE):
+        cols = st.columns(GRID_SIZE)
+        for c, col in enumerate(cols):
+            occupied = any((r, c) in ship for ship in st.session_state.ships)
+            if occupied:
+                col.markdown("🚢")
+            else:
+                key = f"cell_{r}_{c}"
+                if col.checkbox("", key=key, label_visibility="collapsed"):
+                    selected_cells.append((r, c))
 
-# Battle phase: early exit after rendering
-if st.session_state.turn == "battle":
-    render_opponent_grid()
-    st.write(" ")
-    if st.session_state.end_game_message == "U WON!":
-        st.write("")
-    else:
-        st.write("Your board")
-        st.header("Fire at the enemy!")
-    render_player_grid()
+    can_place = len(selected_cells) == next_len
+    if st.button("Place Ship", disabled=not can_place):
+        try:
+            player_ships_placement(selected_cells)
+            st.session_state.ships.append(list(selected_cells))
+            st.session_state.remaining.pop(0)
+            st.success(f"Placed {next_len}-cell ship at {selected_cells}")
+            # clear checkboxes
+            for r in range(GRID_SIZE):
+                for c in range(GRID_SIZE):
+                    st.session_state.pop(f"cell_{r}_{c}", None)
+            if not st.session_state.remaining:
+                st.session_state.placement_turn = "battle"
+            st.rerun()
+        except Exception as e:
+            st.error(str(e))
     st.stop()
 
-# ----------------------------------------- Placement phase -----------------------------------------------------
-next_len = st.session_state.remaining[0]
-st.write(f"Select exactly **{next_len}** cells for your next ship.")
+# ----------------------------------- Battle Phase -----------------------------------
+# 1) Player turn: render opponent grid (fires), then player grid
+render_opponent_grid()
+st.write(" ")
+if st.session_state.end_game_message != "U WON!":
+    st.write("Your board")
+    st.header("Fleet status")
+render_player_grid()
 
-# Draw grid & collect this-turn selections
-selected_cells: list[tuple[int,int]] = []
-for r in range(GRID_SIZE):
-    cols = st.columns(GRID_SIZE)
-    for c, col in enumerate(cols):
-        occupied = any((r, c) in ship for ship in st.session_state.ships)
-        if occupied:
-            col.markdown("🚢")
-        else:
-            key = f"cell_{r}_{c}"
-            if col.checkbox(f"Select cell {r},{c}", key=key, label_visibility="collapsed"):
-                selected_cells.append((r, c))
+# 2) Computer turn
+if st.session_state.current_turn == "computer" and not st.session_state.end_game_message:
+    opponent_move()
+    st.session_state.current_turn = "player"
+    st.rerun()
 
-# Place Ship button, only enabled when count matches next_len
-can_place = len(selected_cells) == next_len
-if st.button("Place Ship", disabled=not can_place):
-    try:
-        player_ships_placement(selected_cells)
-        st.session_state.ships.append(list(selected_cells))
-        st.session_state.remaining.pop(0)
-        st.success(f"Placed {next_len}-cell ship at {selected_cells}")
-        st.session_state.reset_cells = True
-
-        st.rerun()
-    except Exception as e:
-        st.error(str(e))
+st.stop()
