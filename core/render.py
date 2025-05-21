@@ -34,7 +34,9 @@ def render_opponent_grid():
             if coord in hits:
                 col.markdown("🔥")
                 if is_single_opponent_ship_sunken(coord): # skal fjernes efter kontrol
-                    print("alle ramt pls")
+                    print("skib sunket")
+                    if all_opponent_ships_sunk(): #fjern identation & IF sætning og prints
+                        print("Spil slutter")
             elif coord in misses:
                 col.markdown("○")
             else:
@@ -65,4 +67,14 @@ def is_single_opponent_ship_sunken(coord):
     # Only if no ship ever contained coord do we error
     raise ValueError(f"No ship occupies cell {coord}")
 
+
+def all_opponent_ships_sunk():
+    comp_ships = st.session_state.computer_ships
+    hits = st.session_state.player_hits_opponent
+
+    for ship in comp_ships:
+        # Check if each ship is fully hit
+        if not all(cell in hits for cell in ship):
+            return False  # Found a ship not yet sunk
+    return True  # All ships are sunk
 
