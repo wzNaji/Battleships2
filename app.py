@@ -4,8 +4,11 @@ from core.config import GRID_SIZE, SHIP_LENGTHS
 from core.render import render_opponent_grid, render_player_grid
 
 # Initialize session-state buckets
+if 'game_over_rerun_done' not in st.session_state:
+    st.session_state.game_over_rerun_done = False
 if "ships" not in st.session_state:
     st.session_state.ships = []              # already placed coords
+    st.session_state.end_game_message = " "
 if "remaining" not in st.session_state:
     st.session_state.remaining = list(SHIP_LENGTHS)
 if "reset_cells" not in st.session_state:
@@ -26,16 +29,21 @@ if st.session_state.reset_cells:
 
 st.title("Battleship – 7×7")
 
+st.write(st.session_state.end_game_message)
+
 # Switch to battle mode once all ships are placed
 if not st.session_state.remaining:
     st.session_state.turn = "battle"
 
 # Battle phase: early exit after rendering
 if st.session_state.turn == "battle":
-    st.header("Fire at the enemy!")
     render_opponent_grid()
     st.write(" ")
-    st.write("Your board")
+    if st.session_state.end_game_message == "U WON!":
+        st.write("")
+    else:
+        st.write("Your board")
+        st.header("Fire at the enemy!")
     render_player_grid()
     st.stop()
 

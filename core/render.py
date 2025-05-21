@@ -5,6 +5,10 @@ def render_player_grid():
     """
     Shows the player’s ships as 🚢 and empty cells as non-interactive placeholders.
     """
+    # 1) If we’ve already won, don’t draw the grid at all
+    if st.session_state.end_game_message == "U WON!":
+        return
+
     # Read player ships from session state
     ships = st.session_state.ships
     for r in range(GRID_SIZE):
@@ -23,6 +27,11 @@ def render_opponent_grid():
     Renders the opponent’s grid: untargeted cells are fire buttons; hits show 🔥; misses show ○.
     Clicking a button fires at that coordinate.
     """
+
+     # 1) If we’ve already won, don’t draw the grid at all
+    if st.session_state.end_game_message == "U WON!":
+        return
+    
     hits = st.session_state.player_hits_opponent
     misses = st.session_state.player_misses_opponent
     comp_ships = st.session_state.computer_ships
@@ -36,7 +45,13 @@ def render_opponent_grid():
                 if is_single_opponent_ship_sunken(coord): # skal fjernes efter kontrol
                     print("skib sunket")
                     if all_opponent_ships_sunk(): #fjern identation & IF sætning og prints
-                        print("Spil slutter")
+                        st.session_state.end_game_message = "U WON!"
+                        # only rerun once
+                        if not st.session_state.game_over_rerun_done:
+                            st.session_state.game_over_rerun_done = True
+                            st.rerun()
+                        else:
+                            return
             elif coord in misses:
                 col.markdown("○")
             else:
