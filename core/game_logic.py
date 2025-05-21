@@ -1,5 +1,6 @@
 import random
 import numpy as np
+import streamlit as st
 from core.config import SHIP_LENGTHS, GRID_SIZE
 
 Coordinate = tuple[int,int]
@@ -53,8 +54,8 @@ def player_ships_placement(cells: list[Coordinate]) -> bool:
     ships.append(cells)
     return True
 
-def computer_ships_placement() -> Ships_dt:
-    """Randomly place all ships for the computer."""
+def opponent_ships_placement() -> Ships_dt:
+    """Randomly place all ships for the opponent."""
     
 
     for length in SHIP_LENGTHS:
@@ -83,3 +84,75 @@ def computer_ships_placement() -> Ships_dt:
                 placed = True
 
     return opponent_ships
+
+def create_guesses_grid(hits, misses, grid_size):
+    guesses = np.zeros((grid_size, grid_size), dtype=int)
+    for (x, y) in hits:
+        guesses[x, y] = 2  # Hit
+    for (x, y) in misses:
+        guesses[x, y] = 1  # Miss
+    return guesses
+
+def simple_probability_grid(guesses, remaining_lengths, grid_size):
+    prob = np.zeros((grid_size, grid_size), dtype=int)
+    for length in remaining_lengths:
+        # Horizontal
+        for r in range(grid_size):
+            for c in range(grid_size - length + 1):
+                span = guesses[r, c:c+length]
+                if 1 in span:
+                    continue
+                for i in range(length):
+                    if guesses[r, c+i] == 0:
+                        prob[r, c+i] += 1
+        # Vertical
+        for c in range(grid_size):
+            for r in range(grid_size - length + 1):
+                span = guesses[r:r+length, c]
+                if 1 in span:
+                    continue
+                for i in range(length):
+                    if guesses[r+i, c] == 0:
+                        prob[r+i, c] += 1
+    return prob
+
+hits = st.session_state.get("player_hits_opponent")
+misses = st.session_state.get("player_misses_opponent")
+
+guesses = create_guesses_grid(hits, misses, GRID_SIZE)
+probability_grid = simple_probability_grid(guesses, SHIP_LENGTHS, GRID_SIZE)
+
+# Print the probability values in a readable 2D array format
+print("Probability grid (value for each cell):")
+for row in probability_grid:
+    print(' '.join(f"{val:2d}" for val in row))
+st.write(st.session_state.end_game_message)
+
+def is_single_opponent_ship_sunken(coord):
+    """
+    Return True if the ship containing `coord` is fully hit,
+    False if it’s been hit but not yet sunk,
+    and raise if no ship occupies that coord.
+    """
+    comp_ships = st.session_state.opponent_ships
+    hits = st.session_state.player_hits_opponent
+
+    for ship in comp_ships:
+        if coord in ship:
+            # Once we know this is the right ship, return whether every cell is hit
+            return all(cell in hits for cell in ship)
+
+    # Only if no ship ever contained coord do we error
+    raise ValueError(f"No ship occupies cell {coord}")
+
+
+def all_opponent_ships_sunk():
+    comp_ships = st.session_state.opponent_ships
+    hits = st.session_state.player_hits_opponent
+
+    for ship in comp_ships:
+        # Check if each ship is fully hit
+        if not all(cell in hits for cell in ship):
+            return False  # Found a ship not yet sunk
+    return True  # All ships are sunk
+

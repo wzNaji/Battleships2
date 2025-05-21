@@ -1,5 +1,5 @@
 import streamlit as st
-from core.game_logic import player_ships_placement, computer_ships_placement
+from core.game_logic import player_ships_placement, opponent_ships_placement, simple_probability_grid, create_guesses_grid
 from core.config import GRID_SIZE, SHIP_LENGTHS
 from core.render import render_opponent_grid, render_player_grid
 
@@ -13,8 +13,8 @@ if "remaining" not in st.session_state:
     st.session_state.remaining = list(SHIP_LENGTHS)
 if "reset_cells" not in st.session_state:
     st.session_state.reset_cells = False
-if "computer_ships" not in st.session_state:
-    st.session_state.computer_ships = computer_ships_placement()
+if "opponent_ships" not in st.session_state:
+    st.session_state.opponent_ships = opponent_ships_placement()
     st.session_state.player_hits_opponent = set()
     st.session_state.player_misses_opponent = set()
     st.session_state.turn = "player"  # placement phase
@@ -28,8 +28,6 @@ if st.session_state.reset_cells:
     st.rerun()
 
 st.title("Battleship – 7×7")
-
-st.write(st.session_state.end_game_message)
 
 # Switch to battle mode once all ships are placed
 if not st.session_state.remaining:

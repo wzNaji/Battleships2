@@ -1,6 +1,6 @@
 import streamlit as st
 from core.config import GRID_SIZE
-
+from core.game_logic import is_single_opponent_ship_sunken, all_opponent_ships_sunk
 def render_player_grid():
     """
     Shows the player’s ships as 🚢 and empty cells as non-interactive placeholders.
@@ -34,7 +34,7 @@ def render_opponent_grid():
     
     hits = st.session_state.player_hits_opponent
     misses = st.session_state.player_misses_opponent
-    comp_ships = st.session_state.computer_ships
+    comp_ships = st.session_state.opponent_ships
     print(comp_ships) # skal fjernes efter kontrol
     for r in range(GRID_SIZE):
         cols = st.columns(GRID_SIZE)
@@ -63,33 +63,3 @@ def render_opponent_grid():
                         st.session_state.player_misses_opponent.add(coord)
                     
                     st.rerun()
-                    
-
-def is_single_opponent_ship_sunken(coord):
-    """
-    Return True if the ship containing `coord` is fully hit,
-    False if it’s been hit but not yet sunk,
-    and raise if no ship occupies that coord.
-    """
-    comp_ships = st.session_state.computer_ships
-    hits = st.session_state.player_hits_opponent
-
-    for ship in comp_ships:
-        if coord in ship:
-            # Once we know this is the right ship, return whether every cell is hit
-            return all(cell in hits for cell in ship)
-
-    # Only if no ship ever contained coord do we error
-    raise ValueError(f"No ship occupies cell {coord}")
-
-
-def all_opponent_ships_sunk():
-    comp_ships = st.session_state.computer_ships
-    hits = st.session_state.player_hits_opponent
-
-    for ship in comp_ships:
-        # Check if each ship is fully hit
-        if not all(cell in hits for cell in ship):
-            return False  # Found a ship not yet sunk
-    return True  # All ships are sunk
-
