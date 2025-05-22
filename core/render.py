@@ -61,7 +61,7 @@ def render_opponent_grid():
                     if all_opponent_ships_sunk():
                         st.session_state.end_game_message = "U WON!"
                         if not st.session_state.game_over_rerun_done:
-                            st.session_state.game_over_rerun_done = True
+                            st.session_state.game_over_rerun_done = True                           
                             st.rerun()
                     # hand off to computer
                     st.session_state.current_turn = "computer"
