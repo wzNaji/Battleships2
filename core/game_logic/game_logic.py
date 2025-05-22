@@ -4,6 +4,7 @@ import streamlit as st
 from core.config import SHIP_LENGTHS, GRID_SIZE
 from core.game_logic.ship_checks import (
     all_player_ships_sunk,
+    is_single_player_ship_sunken
 )
 
 Coordinate = tuple[int, int]
@@ -106,12 +107,56 @@ def get_next_guess(grid_size: int, remaining_lengths: list[int]) -> Coordinate:
     return random.choice(candidates)
 
 
+def enqueue_neighbors(coord: Coordinate):
+    """Add orthogonal neighbors of `coord` to target_queue if valid and untried."""
+    r, c = coord
+    for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+        nr, nc = r + dr, c + dc
+        neighbor = (nr, nc)
+        if 0 <= nr < GRID_SIZE and 0 <= nc < GRID_SIZE:
+            if (neighbor not in st.session_state.opponent_hits_player
+               and neighbor not in st.session_state.opponent_misses_player
+               and neighbor not in st.session_state.target_queue):
+                st.session_state.target_queue.append(neighbor)
+
+
 def opponent_move():
-    coord = get_next_guess(GRID_SIZE, SHIP_LENGTHS)
+    """AI turn: hunt or target mode, then fire and update state."""
+    # 1) pick coordinate
+    if st.session_state.target_mode and st.session_state.target_queue:
+        coord = st.session_state.target_queue.pop(0)
+    else:
+        # exit target mode if queue exhausted
+        st.session_state.target_mode = False
+        coord = get_next_guess(GRID_SIZE, SHIP_LENGTHS)
+
+    # 2) fire
     if any(coord in ship for ship in st.session_state.ships):
         st.session_state.opponent_hits_player.add(coord)
+        # first hit on a new ship? initialize target-mode state
+        if not st.session_state.target_mode:
+            st.session_state.target_mode = True
+            st.session_state.target_ship_hits = {coord}
+            # identify full ship cells
+            for ship in st.session_state.ships:
+                if coord in ship:
+                    st.session_state.target_ship_cells = set(ship)
+                    break
+        else:
+            # continuing target
+            st.session_state.target_ship_hits.add(coord)
+        # enqueue neighbors for further targeting
+        st.session_state.target_queue.clear()
+        enqueue_neighbors(coord)
+        # if that ship is now sunk, clear target-mode data
+        if is_single_player_ship_sunken(coord):
+            st.session_state.target_mode = False
+            st.session_state.target_queue.clear()
+            st.session_state.target_ship_hits.clear()
+            st.session_state.target_ship_cells.clear()
     else:
         st.session_state.opponent_misses_player.add(coord)
 
+    # 3) check for defeat
     if all_player_ships_sunk():
         st.session_state.end_game_message = "COMPUTER WINS!"
