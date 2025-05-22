@@ -19,6 +19,12 @@ st.session_state.setdefault("player_misses_opponent", set())
 st.session_state.setdefault("opponent_hits_player", set())
 st.session_state.setdefault("opponent_misses_player", set())
 
+# --- Target-mode AI state ---
+st.session_state.setdefault("target_mode", False)
+st.session_state.setdefault("target_queue", [])        # queued coords to try in target mode
+st.session_state.setdefault("target_ship_hits", set())  # coords hit on the current target ship
+st.session_state.setdefault("target_ship_cells", set()) # all coords of current target ship
+
 # Place opponent ships once
 if not st.session_state.get("opponent_ships"):
     st.session_state.opponent_ships = opponent_ships_placement()

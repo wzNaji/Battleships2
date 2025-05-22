@@ -26,6 +26,7 @@ def render_player_grid():
             # Override if the opponent hit this cell
             if coord in hits:
                 symbol = "🔥"
+                # Måske target func her?
             # Override if the opponent missed
             elif coord in misses:
                 symbol = "○"
