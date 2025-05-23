@@ -166,9 +166,10 @@ def opponent_move():
 def reset_game():
     # clear out everything in session_state
     st.session_state.clear()
+    st.session_state['new_game'] = True
     ships.clear()
     # re-run so that all your setdefault(...) calls fire again
     st.rerun()
-=======
+
 ### ML / AI Functions ###
 

@@ -94,10 +94,6 @@ if st.session_state.end_game_message != "U WON!":
     st.write("Your board")
     st.header("Fleet status")
 render_player_grid()
-if st.button("Start New Game"):
-    ships.clear()
-    st.session_state['new_game'] = True
-    st.rerun()
 
 # ——— Reset button ———
 if st.button("🔄 Restart Game"):
