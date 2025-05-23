@@ -3,7 +3,8 @@ from core.config import GRID_SIZE, SHIP_LENGTHS
 from core.game_logic.game_logic import (
     player_ships_placement,
     opponent_ships_placement,
-    opponent_move, ships
+    opponent_move,
+    reset_game
 )
 from core.render import render_opponent_grid, render_player_grid
 
@@ -98,6 +99,9 @@ if st.button("Start New Game"):
     st.session_state['new_game'] = True
     st.rerun()
 
+# ——— Reset button ———
+if st.button("🔄 Restart Game"):
+    reset_game()
 # 2) Computer turn
 if st.session_state.current_turn == "computer" and not st.session_state.end_game_message:
     opponent_move()
