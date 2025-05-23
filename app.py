@@ -7,6 +7,7 @@ from core.game_logic.game_logic import (
     player_ships_placement,
     opponent_ships_placement,
     opponent_move,
+    reset_game
 )
 from core.render import render_opponent_grid, render_player_grid
 
@@ -28,6 +29,23 @@ st.session_state.setdefault("target_queue", [])        # queued coords to try in
 st.session_state.setdefault("target_ship_hits", set())  # coords hit on the current target ship
 st.session_state.setdefault("target_ship_cells", set()) # all coords of current target ship
 
+if st.session_state.get("new_game", False):
+    # Clear previous game data
+    st.session_state['ships'] = []
+    st.session_state['player_hits_opponent'] = set()
+    st.session_state['player_misses_opponent'] = set()
+    st.session_state['opponent_hits_player'] = set()
+    st.session_state['opponent_misses_player'] = set()
+    st.session_state['end_game_message'] = " "
+    # You may also want to reset the opponent ships if starting fresh
+    st.session_state['opponent_ships'] = []
+    # Reset placement phase
+    st.session_state['placement_turn'] = "placement"
+    st.session_state['remaining'] = list(SHIP_LENGTHS)
+    st.session_state['current_turn'] = "player"
+    # Remove 'new_game' flag after reset
+    st.session_state['new_game'] = False
+
 # Place opponent ships once
 if not st.session_state.get("opponent_ships"):
     st.session_state.opponent_ships = opponent_ships_placement()
@@ -39,7 +57,6 @@ if 'agent' not in st.session_state:
 
 if 'learning_counter' not in st.session_state:
     st.session_state.learning_counter = 0
-
 st.title("Battleship – 7×7")
 if st.session_state.get("end_game_message"):
     st.write(st.session_state.get("end_game_message"))
@@ -65,6 +82,7 @@ if st.session_state.placement_turn == "placement":
         try:
             player_ships_placement(selected_cells)
             st.session_state.ships.append(list(selected_cells))
+            print(st.session_state.ships)
             st.session_state.remaining.pop(0)
             st.success(f"Placed {next_len}-cell ship at {selected_cells}")
             # clear checkboxes
@@ -77,6 +95,7 @@ if st.session_state.placement_turn == "placement":
         except Exception as e:
             st.error(str(e))
     st.stop()
+
 def rl_agent_opponent_move():
     agent = st.session_state.agent
     
@@ -138,6 +157,10 @@ if st.session_state.end_game_message != "U WON!":
     st.write("Your board")
     st.header("Fleet status")
 render_player_grid()
+
+# ——— Reset button ———
+if st.button("🔄 Restart Game"):
+    reset_game()
 
 # 2) Computer turn
 if st.session_state.current_turn == "computer" and not st.session_state.end_game_message:
