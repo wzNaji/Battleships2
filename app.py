@@ -4,6 +4,7 @@ from core.game_logic.game_logic import (
     player_ships_placement,
     opponent_ships_placement,
     opponent_move,
+    reset_game
 )
 from core.render import render_opponent_grid, render_player_grid
 
@@ -76,6 +77,9 @@ if st.session_state.end_game_message != "U WON!":
     st.header("Fleet status")
 render_player_grid()
 
+# ——— Reset button ———
+if st.button("🔄 Restart Game"):
+    reset_game()
 # 2) Computer turn
 if st.session_state.current_turn == "computer" and not st.session_state.end_game_message:
     opponent_move()

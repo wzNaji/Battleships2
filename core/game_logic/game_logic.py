@@ -160,3 +160,10 @@ def opponent_move():
     # 3) check for defeat
     if all_player_ships_sunk():
         st.session_state.end_game_message = "COMPUTER WINS!"
+
+def reset_game():
+    # clear out everything in session_state
+    st.session_state.clear()
+    ships.clear()
+    # re-run so that all your setdefault(...) calls fire again
+    st.rerun()
