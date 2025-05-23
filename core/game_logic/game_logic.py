@@ -18,6 +18,7 @@ opponent_ships: Ships_dt = []
 def player_ships_placement(cells: list[Coordinate]) -> bool:
     # ... your placement‐validation logic unchanged ...
     length = len(cells)
+    print(cells)
     if length not in SHIP_LENGTHS:
         raise ValueError(f"Invalid ship length {length}; must be one of {SHIP_LENGTHS}.")
     for cell in cells:
@@ -161,9 +162,13 @@ def opponent_move():
     if all_player_ships_sunk():
         st.session_state.end_game_message = "COMPUTER WINS!"
 
+
 def reset_game():
     # clear out everything in session_state
     st.session_state.clear()
     ships.clear()
     # re-run so that all your setdefault(...) calls fire again
     st.rerun()
+=======
+### ML / AI Functions ###
+
