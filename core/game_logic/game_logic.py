@@ -121,42 +121,44 @@ def enqueue_neighbors(coord: Coordinate):
 
 
 def opponent_move():
-    """AI turn: hunt or target mode, then fire and update state."""
-    # 1) pick coordinate
-    if st.session_state.target_mode and st.session_state.target_queue:
-        coord = st.session_state.target_queue.pop(0)
-    else:
-        # exit target mode if queue exhausted
-        st.session_state.target_mode = False
-        coord = get_next_guess(GRID_SIZE, SHIP_LENGTHS)
-
-    # 2) fire
+    # Get current state
+    state = get_state(st.session_state.opponent_hits_player, st.session_state.opponent_misses_player, GRID_SIZE)
+    
+    # Choose move via RL agent
+    action = st.session_state.agent.select_action(state)
+    r, c = divmod(action, GRID_SIZE)
+    coord = (r, c)
+    
+    # Perform attack
     if any(coord in ship for ship in st.session_state.ships):
+        reward = 10
+        # check if sunk for bigger reward if desired
+    else:
+        reward = -1
+    
+    # Update hits/misses
+    if reward > 0:
         st.session_state.opponent_hits_player.add(coord)
-        # first hit on a new ship? initialize target-mode state
-        if not st.session_state.target_mode:
-            st.session_state.target_mode = True
-            st.session_state.target_ship_hits = {coord}
-            # identify full ship cells
-            for ship in st.session_state.ships:
-                if coord in ship:
-                    st.session_state.target_ship_cells = set(ship)
-                    break
-        else:
-            # continuing target
-            st.session_state.target_ship_hits.add(coord)
-        # enqueue neighbors for further targeting
-        st.session_state.target_queue.clear()
-        enqueue_neighbors(coord)
-        # if that ship is now sunk, clear target-mode data
-        if is_single_player_ship_sunken(coord):
-            st.session_state.target_mode = False
-            st.session_state.target_queue.clear()
-            st.session_state.target_ship_hits.clear()
-            st.session_state.target_ship_cells.clear()
     else:
         st.session_state.opponent_misses_player.add(coord)
-
-    # 3) check for defeat
-    if all_player_ships_sunk():
+    
+    # Observe next state
+    next_state = get_state(st.session_state.opponent_hits_player, st.session_state.opponent_misses_player, GRID_SIZE)
+    done = all_player_ships_sunk()
+    
+    # Store experience
+    st.session_state.agent.remember(state, action, reward, next_state, done)
+    
+    # Train periodically
+    if hasattr(st.session_state.agent, 'learning_counter'):
+        st.session_state.agent.learning_counter += 1
+    else:
+        st.session_state.agent.learning_counter = 1
+    
+    if st.session_state.agent.learning_counter % 10 == 0:
+        st.session_state.agent.replay()
+    
+    # Check for game over, process accordingly
+    if done:
         st.session_state.end_game_message = "COMPUTER WINS!"
+       
