@@ -18,7 +18,6 @@ opponent_ships: Ships_dt = []
 def player_ships_placement(cells: list[Coordinate]) -> bool:
     # ... your placement‐validation logic unchanged ...
     length = len(cells)
-    print(cells)
     if length not in SHIP_LENGTHS:
         raise ValueError(f"Invalid ship length {length}; must be one of {SHIP_LENGTHS}.")
     for cell in cells:
@@ -105,6 +104,7 @@ def get_next_guess(grid_size: int, remaining_lengths: list[int]) -> Coordinate:
     grid = create_guesses_grid(hits, misses, grid_size)
     prob_grid = simple_probability_grid(grid, remaining_lengths, grid_size)
     candidates = list(zip(*np.where(prob_grid == prob_grid.max())))
+    print(candidates)
     return random.choice(candidates)
 
 
@@ -166,8 +166,8 @@ def opponent_move():
 def reset_game():
     # clear out everything in session_state
     st.session_state.clear()
-    st.session_state['new_game'] = True
     ships.clear()
+    opponent_ships.clear()
     # re-run so that all your setdefault(...) calls fire again
     st.rerun()
 

@@ -1,9 +1,3 @@
-'''
-train_tf.py: Standalone DQN training script for Battleship using TensorFlow.
-All game logic and state are self-contained—no external GameState module needed.
-Usage: python train_tf.py
-'''
-
 import random
 import numpy as np
 from collections import deque
@@ -14,9 +8,32 @@ from tensorflow.keras import layers, optimizers
 GRID_SIZE = 7
 SHIP_LENGTHS = [4, 3, 2]
 
+# --- Helper functions for AI targeting ---
+def get_next_guess(grid_size, SHIP_LENGHTS, hits=None, misses=None):
+    """
+    Hunt mode: pick a random unknown cell, optionally using checkerboard parity.
+    """
+    all_cells = [(r, c) for r in range(grid_size) for c in range(grid_size)]
+    unknown = [cell for cell in all_cells if cell not in hits and cell not in misses]
+    # Use parity to improve efficiency
+    parity = [cell for cell in unknown if (cell[0] + cell[1]) % 2 == 0]
+    return random.choice(parity or unknown)
+
+
+def enqueue_neighbors(coord, grid_size, hits, misses, queue):
+    """
+    Enqueue orthogonal neighbors of a hit for target mode.
+    """
+    r, c = coord
+    for dr, dc in [(1,0),(-1,0),(0,1),(0,-1)]:
+        nr, nc = r + dr, c + dc
+        if 0 <= nr < grid_size and 0 <= nc < grid_size:
+            if (nr, nc) not in hits and (nr, nc) not in misses and (nr, nc) not in queue:
+                queue.append((nr, nc))
+
 # --- Game state management ---
 class GameState:
-    """Manages Battleship game state without external dependencies."""
+    """Manages Battleship game state, including AI targeting state."""
     def __init__(self):
         self.reset_all()
 
@@ -25,12 +42,21 @@ class GameState:
         self.ships = []
         self.player_hits_opponent = set()
         self.player_misses_opponent = set()
-        # Opponent side
+        # Opponent side (AI)
         self.opponent_ships = []
         self.opponent_hits_player = set()
         self.opponent_misses_player = set()
-        # Place opponent ships
+        # Sink bonus tracking for player
+        self.sunk_ships_awarded_opponent = set()
+        # AI targeting state
+        self.opponent_target_mode = False
+        self.opponent_target_queue = []
+        self.opponent_target_hits = set()
+        self.opponent_target_cells = set()
+
+        # Place ships
         self.place_opponent_ships()
+        self.place_player_ships()
 
     def place_opponent_ships(self):
         self.opponent_ships.clear()
@@ -46,9 +72,26 @@ class GameState:
                     r = random.randint(0, GRID_SIZE - length)
                     c = random.randint(0, GRID_SIZE - 1)
                     coords = [(r + i, c) for i in range(length)]
-                # check overlap
                 if not any(coord in cell for cell in self.opponent_ships for coord in coords):
                     self.opponent_ships.append(coords)
+                    placed = True
+
+    def place_player_ships(self):
+        self.ships.clear()
+        for length in SHIP_LENGTHS:
+            placed = False
+            while not placed:
+                horizontal = random.choice([True, False])
+                if horizontal:
+                    r = random.randint(0, GRID_SIZE - 1)
+                    c = random.randint(0, GRID_SIZE - length)
+                    coords = [(r, c + i) for i in range(length)]
+                else:
+                    r = random.randint(0, GRID_SIZE - length)
+                    c = random.randint(0, GRID_SIZE - 1)
+                    coords = [(r + i, c) for i in range(length)]
+                if not any(coord in cell for cell in self.ships for coord in coords):
+                    self.ships.append(coords)
                     placed = True
 
 # --- Game logic helper functions ---
@@ -58,15 +101,18 @@ def is_single_opponent_ship_sunken(state: GameState, coord: tuple[int,int]) -> b
             return all(cell in state.player_hits_opponent for cell in ship)
     raise ValueError(f"No opponent ship occupies {coord}")
 
+
 def all_opponent_ships_sunk(state: GameState) -> bool:
     return all(all(cell in state.player_hits_opponent for cell in ship)
                for ship in state.opponent_ships)
+
 
 def is_single_player_ship_sunken(state: GameState, coord: tuple[int,int]) -> bool:
     for ship in state.ships:
         if coord in ship:
             return all(cell in state.opponent_hits_player for cell in ship)
     raise ValueError(f"No player ship occupies {coord}")
+
 
 def all_player_ships_sunk(state: GameState) -> bool:
     return all(all(cell in state.opponent_hits_player for cell in ship)
@@ -124,32 +170,89 @@ class BattleshipEnv:
             raise RuntimeError("Episode done; call reset().")
         r, c = divmod(int(action), GRID_SIZE)
         coord = (r, c)
-        # Player move
-        reward=0 #initialise
-        if any(coord in ship for ship in self.state.opponent_ships):
+
+        # Prevent duplicate actions
+        if coord in self.state.player_hits_opponent or coord in self.state.player_misses_opponent:
+            return self._get_obs(), 0.0, self.done, {}
+
+        reward = 0.0
+
+        # --- Player move ---
+        hit = any(coord in ship for ship in self.state.opponent_ships)
+        if hit:
             self.state.player_hits_opponent.add(coord)
-            reward += 2.0
-            if is_single_opponent_ship_sunken(self.state, coord):
-                reward += 10 ###len(SHIP_LENGTHS)
+            reward += 1.0
+            # Check and award sunk bonus once
+            for idx, ship in enumerate(self.state.opponent_ships):
+                if coord in ship and idx not in self.state.sunk_ships_awarded_opponent:
+                    if all(cell in self.state.player_hits_opponent for cell in ship):
+                        reward += 2
+                        self.state.sunk_ships_awarded_opponent.add(idx)
+                    break
         else:
             self.state.player_misses_opponent.add(coord)
-            reward = -0.1
+            reward -= 0.1
+
+        # Check victory for player
         if all_opponent_ships_sunk(self.state):
-            reward += 20.0
+            reward += 10.0
             self.done = True
-        # Opponent random
-        if not self.done:
-            choices = [(i,j) for i in range(GRID_SIZE) for j in range(GRID_SIZE)
-                       if (i,j) not in self.state.opponent_hits_player
-                       and (i,j) not in self.state.opponent_misses_player]
-            opp = random.choice(choices)
-            if any(opp in ship for ship in self.state.ships):
-                self.state.opponent_hits_player.add(opp)
+            return self._get_obs(), reward, self.done, {}
+
+        # --- Opponent move (hunt & target) ---
+        s = self.state
+        # 1) select shot
+        if s.opponent_target_mode and s.opponent_target_queue:
+            opp_coord = s.opponent_target_queue.pop(0)
+        else:
+            s.opponent_target_mode = False
+            opp_coord = get_next_guess(
+                GRID_SIZE,
+                SHIP_LENGTHS,
+                hits=s.opponent_hits_player,
+                misses=s.opponent_misses_player
+            )
+
+        # 2) fire
+        if any(opp_coord in ship for ship in s.ships):
+            s.opponent_hits_player.add(opp_coord)
+            # enter or continue target mode
+            if not s.opponent_target_mode:
+                s.opponent_target_mode = True
+                s.opponent_target_hits = {opp_coord}
+                # identify ship cells
+                for ship in s.ships:
+                    if opp_coord in ship:
+                        s.opponent_target_cells = set(ship)
+                        break
             else:
-                self.state.opponent_misses_player.add(opp)
-            if all_player_ships_sunk(self.state):
-                reward -= 10.0
-                self.done = True
+                s.opponent_target_hits.add(opp_coord)
+
+            # enqueue neighbors
+            s.opponent_target_queue.clear()
+            enqueue_neighbors(
+                opp_coord,
+                GRID_SIZE,
+                s.opponent_hits_player,
+                s.opponent_misses_player,
+                s.opponent_target_queue
+            )
+
+            # check if sunk
+            sunk = is_single_player_ship_sunken(self.state, opp_coord)
+            if sunk:
+                s.opponent_target_mode = False
+                s.opponent_target_queue.clear()
+                s.opponent_target_hits.clear()
+                s.opponent_target_cells.clear()
+        else:
+            s.opponent_misses_player.add(opp_coord)
+
+        # 3) check defeat for opponent
+        if all_player_ships_sunk(self.state):
+            reward -= 10.0
+            self.done = True
+
         return self._get_obs(), reward, self.done, {}
 
 # --- Hyperparameters & Setup ---
@@ -159,7 +262,7 @@ gamma = 0.99
 lr = 1e-3
 batch_size = 64
 memory_size = 100000
-num_episodes = 10000
+num_episodes = 5000
 max_steps = GRID_SIZE * GRID_SIZE
 update_target_every = 100
 
@@ -179,18 +282,37 @@ for ep in range(num_episodes):
     env = BattleshipEnv()
     state = env.reset()
     total_reward = 0.0
+    
     for t in range(max_steps):
         eps = get_epsilon(steps_done)
+
+        # Build valid action mask
+        valid_mask = np.ones(grid_cells, dtype=bool)
+        for coord in env.state.player_hits_opponent:
+            valid_mask[coord[0]*GRID_SIZE + coord[1]] = False
+        for coord in env.state.player_misses_opponent:
+            valid_mask[coord[0]*GRID_SIZE + coord[1]] = False
+
         if random.random() < eps:
-            action = random.randrange(grid_cells)
+            # Pick a random move from valid options
+            available = [(i, j) for i in range(GRID_SIZE) for j in range(GRID_SIZE)
+                         if valid_mask[i * GRID_SIZE + j]]
+            action_coord = random.choice(available)
+            action = action_coord[0] * GRID_SIZE + action_coord[1]
         else:
-            obs = tf.expand_dims(state, 0)
-            action = int(tf.argmax(policy_net(obs)[0]).numpy())
+            # Model-based action
+            q_vals = policy_net(tf.expand_dims(state, 0))[0].numpy()
+            q_vals[~valid_mask] = -np.inf
+            action = int(np.argmax(q_vals))
+        
         next_state, reward, done, _ = env.step(action)
+
         memory.push(state, action, reward, next_state, done)
         state = next_state
         total_reward += reward
         steps_done += 1
+
+        # Update network
         if len(memory) >= batch_size:
             s_b, a_b, r_b, ns_b, d_b = memory.sample(batch_size)
             with tf.GradientTape() as tape:
@@ -202,11 +324,14 @@ for ep in range(num_episodes):
                 loss = tf.reduce_mean(tf.square(q_pred - q_target))
             grads = tape.gradient(loss, policy_net.trainable_variables)
             optimizer.apply_gradients(zip(grads, policy_net.trainable_variables))
+        
         if done:
             break
+
     if ep % update_target_every == 0:
         target_net.set_weights(policy_net.get_weights())
-        print(f"Episode {ep}, Reward: {total_reward:.2f}")
+        
+    print(f"Episode {ep}, Reward: {total_reward:.2f}, Hits: {len(env.state.player_hits_opponent)}, Misses: {len(env.state.player_misses_opponent)}")
 
-policy_net.save('battleship_dqn_tf.keras')
-print("Training complete, model saved to 'battleship_dqn_tf'.")
+policy_net.save('battleship_dqn_tf_fixed.keras')
+print("Training complete, model saved to 'battleship_dqn_tf_fixed.keras'.")
