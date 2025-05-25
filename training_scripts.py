@@ -125,16 +125,17 @@ class BattleshipEnv:
         r, c = divmod(int(action), GRID_SIZE)
         coord = (r, c)
         # Player move
+        reward=0 #initialise
         if any(coord in ship for ship in self.state.opponent_ships):
             self.state.player_hits_opponent.add(coord)
-            reward = 1.0
+            reward += 2.0
             if is_single_opponent_ship_sunken(self.state, coord):
-                reward += len(SHIP_LENGTHS)
+                reward += 10 ###len(SHIP_LENGTHS)
         else:
             self.state.player_misses_opponent.add(coord)
             reward = -0.1
         if all_opponent_ships_sunk(self.state):
-            reward += 10.0
+            reward += 20.0
             self.done = True
         # Opponent random
         if not self.done:
@@ -207,5 +208,5 @@ for ep in range(num_episodes):
         target_net.set_weights(policy_net.get_weights())
         print(f"Episode {ep}, Reward: {total_reward:.2f}")
 
-policy_net.save('battleship_dqn_tf')
+policy_net.save('battleship_dqn_tf.keras')
 print("Training complete, model saved to 'battleship_dqn_tf'.")
