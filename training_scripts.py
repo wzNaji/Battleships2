@@ -7,18 +7,47 @@ from tensorflow.keras import layers, optimizers
 # --- Configuration ---
 GRID_SIZE = 7
 SHIP_LENGTHS = [4, 3, 2]
+Coordinate = tuple[int, int]
+Ships_dt = list[list[Coordinate]]
 
 # --- Helper functions for AI targeting ---
-def get_next_guess(grid_size, SHIP_LENGHTS, hits=None, misses=None):
-    """
-    Hunt mode: pick a random unknown cell, optionally using checkerboard parity.
-    """
-    all_cells = [(r, c) for r in range(grid_size) for c in range(grid_size)]
-    unknown = [cell for cell in all_cells if cell not in hits and cell not in misses]
-    # Use parity to improve efficiency
-    parity = [cell for cell in unknown if (cell[0] + cell[1]) % 2 == 0]
-    return random.choice(parity or unknown)
 
+def create_guesses_grid(hits: set[Coordinate], misses: set[Coordinate], grid_size: int):
+    guesses = np.zeros((grid_size, grid_size), dtype=int)
+    for x, y in hits:
+        guesses[x, y] = 2
+    for x, y in misses:
+        guesses[x, y] = 1
+    return guesses
+
+def simple_probability_grid(guesses, remaining_lengths, grid_size: int):
+    prob = np.zeros((grid_size, grid_size), dtype=int)
+    for length in remaining_lengths:
+        # horizontal
+        for r in range(grid_size):
+            for c in range(grid_size - length + 1):
+                span = guesses[r, c : c + length]
+                if 1 in span:
+                    continue
+                for i in range(length):
+                    if guesses[r, c + i] == 0:
+                        prob[r, c + i] += 1
+        # vertical
+        for c in range(grid_size):
+            for r in range(grid_size - length + 1):
+                span = guesses[r : r + length, c]
+                if 1 in span:
+                    continue
+                for i in range(length):
+                    if guesses[r + i, c] == 0:
+                        prob[r + i, c] += 1
+    return prob
+
+def get_next_guess(s, grid_size: int, remaining_lengths: list[int], hits, misses) -> Coordinate:
+    grid = create_guesses_grid(hits, misses, grid_size)
+    prob_grid = simple_probability_grid(grid, remaining_lengths, grid_size)
+    candidates = list(zip(*np.where(prob_grid == prob_grid.max())))
+    return random.choice(candidates)
 
 def enqueue_neighbors(coord, grid_size, hits, misses, queue):
     """
@@ -48,11 +77,16 @@ class GameState:
         self.opponent_misses_player = set()
         # Sink bonus tracking for player
         self.sunk_ships_awarded_opponent = set()
-        # AI targeting state
+        # Heuristic opponent targeting state
         self.opponent_target_mode = False
         self.opponent_target_queue = []
         self.opponent_target_hits = set()
         self.opponent_target_cells = set()
+        # RL agent exploration targetting state
+        self.rl_agent_target_mode = False
+        self.rl_agent_target_queue = []
+        self.rl_agent_target_hits = set()
+        self.rl_agent_target_cells = set()
 
         # Place ships
         self.place_opponent_ships()
@@ -94,7 +128,10 @@ class GameState:
                     self.ships.append(coords)
                     placed = True
 
-# --- Game logic helper functions ---
+
+
+# --- ship checks logic helper functions ---
+
 def is_single_opponent_ship_sunken(state: GameState, coord: tuple[int,int]) -> bool:
     for ship in state.opponent_ships:
         if coord in ship:
@@ -117,6 +154,8 @@ def is_single_player_ship_sunken(state: GameState, coord: tuple[int,int]) -> boo
 def all_player_ships_sunk(state: GameState) -> bool:
     return all(all(cell in state.opponent_hits_player for cell in ship)
                for ship in state.ships)
+
+
 
 # --- DQN model and replay buffer ---
 class DQN(tf.keras.Model):
@@ -147,10 +186,12 @@ class ReplayBuffer:
     def __len__(self):
         return len(self.buffer)
 
+
 # --- Environment wrapper ---
 class BattleshipEnv:
     def __init__(self):
         self.state = GameState()
+        self.done = False
 
     def reset(self):
         self.state.reset_all()
@@ -168,12 +209,12 @@ class BattleshipEnv:
     def step(self, action):
         if self.done:
             raise RuntimeError("Episode done; call reset().")
+        #from 1D array to 2D array
         r, c = divmod(int(action), GRID_SIZE)
         coord = (r, c)
-
         # Prevent duplicate actions
         if coord in self.state.player_hits_opponent or coord in self.state.player_misses_opponent:
-            return self._get_obs(), 0.0, self.done, {}
+            return self._get_obs(), -100, self.done, {}
 
         reward = 0.0
 
@@ -182,6 +223,7 @@ class BattleshipEnv:
         if hit:
             self.state.player_hits_opponent.add(coord)
             reward += 1.0
+            self.rl_agent_target_mode = True
             # Check and award sunk bonus once
             for idx, ship in enumerate(self.state.opponent_ships):
                 if coord in ship and idx not in self.state.sunk_ships_awarded_opponent:
@@ -191,7 +233,7 @@ class BattleshipEnv:
                     break
         else:
             self.state.player_misses_opponent.add(coord)
-            reward -= 0.1
+            reward -= 0.2
 
         # Check victory for player
         if all_opponent_ships_sunk(self.state):
@@ -207,10 +249,11 @@ class BattleshipEnv:
         else:
             s.opponent_target_mode = False
             opp_coord = get_next_guess(
+                s,
                 GRID_SIZE,
                 SHIP_LENGTHS,
                 hits=s.opponent_hits_player,
-                misses=s.opponent_misses_player
+                misses=s.opponent_misses_player,
             )
 
         # 2) fire
@@ -252,17 +295,16 @@ class BattleshipEnv:
         if all_player_ships_sunk(self.state):
             reward -= 10.0
             self.done = True
-
         return self._get_obs(), reward, self.done, {}
 
 # --- Hyperparameters & Setup ---
 grid_cells = GRID_SIZE * GRID_SIZE
-epsilon_start, epsilon_end, epsilon_decay = 1.0, 0.35, 50000
+epsilon_start, epsilon_end, epsilon_decay = 1.0, 0.2, 200_000
 gamma = 0.99
 lr = 1e-3
 batch_size = 64
 memory_size = 100000
-num_episodes = 5000
+num_episodes = 10000
 max_steps = GRID_SIZE * GRID_SIZE
 update_target_every = 100
 
@@ -274,41 +316,62 @@ memory = ReplayBuffer(memory_size)
 
 # Epsilon schedule
 def get_epsilon(step):
+
     return epsilon_end + (epsilon_start - epsilon_end) * np.exp(-step / epsilon_decay)
 
 # --- Training loop ---
 steps_done = 0
 for ep in range(num_episodes):
     env = BattleshipEnv()
-    state = env.reset()
-    total_reward = 0.0
+    self = GameState()
+    if all_player_ships_sunk(self) or all_opponent_ships_sunk(self):
+        env.reset()
+    
+    total_reward=0
     
     for t in range(max_steps):
         eps = get_epsilon(steps_done)
 
-        # Build valid action mask
-        valid_mask = np.ones(grid_cells, dtype=bool)
-        for coord in env.state.player_hits_opponent:
-            valid_mask[coord[0]*GRID_SIZE + coord[1]] = False
-        for coord in env.state.player_misses_opponent:
-            valid_mask[coord[0]*GRID_SIZE + coord[1]] = False
+        # 1) build your prob & guesses grids
+        guesses = create_guesses_grid(
+            env.state.player_hits_opponent,
+            env.state.player_misses_opponent,
+            GRID_SIZE
+        )
+        prob = simple_probability_grid(guesses, SHIP_LENGTHS, GRID_SIZE)
 
-        if random.random() < eps:
-            # Pick a random move from valid options
-            available = [(i, j) for i in range(GRID_SIZE) for j in range(GRID_SIZE)
-                         if valid_mask[i * GRID_SIZE + j]]
-            action_coord = random.choice(available)
-            action = action_coord[0] * GRID_SIZE + action_coord[1]
+        # 2) first few episodes: pure heuristic
+        if ep < 500:
+            candidates = list(zip(*np.where(prob == prob.max())))
+            chosen = random.choice(candidates)
+            action = int(chosen[0] * GRID_SIZE + chosen[1])
+
+        # 3) afterwards: masked ε-greedy on Q-values
         else:
-            # Model-based action
-            q_vals = policy_net(tf.expand_dims(state, 0))[0].numpy()
-            q_vals[~valid_mask] = -np.inf
-            action = int(np.argmax(q_vals))
-        
+            # a) get raw Q-values
+            q_tensor = policy_net(tf.expand_dims(prob, axis=0))  # shape (1,49)
+            q_vals   = q_tensor[0].numpy()                        # shape (49,)
+
+            # b) mask out already-shot cells
+            flat_guesses = guesses.flatten()       # 49-long array of {0,1,2}
+            valid_idx    = (flat_guesses == 0)     # True == untried
+            masked_q     = q_vals.copy()
+            masked_q[~valid_idx] = -np.inf
+
+            # c) ε-greedy over the valid indices
+            if random.random() < eps:
+                choices = np.where(valid_idx)[0]  # list of untried 0–48
+                action  = int(random.choice(choices))
+            else:
+                action  = int(np.argmax(masked_q))
+
+        # 4) fire!
         next_state, reward, done, _ = env.step(action)
 
-        memory.push(state, action, reward, next_state, done)
-        state = next_state
+        
+
+        memory.push(prob, action, reward, next_state, done)
+        prob = next_state
         total_reward += reward
         steps_done += 1
 
