@@ -77,11 +77,16 @@ class GameState:
         self.opponent_misses_player = set()
         # Sink bonus tracking for player
         self.sunk_ships_awarded_opponent = set()
-        # AI targeting state
+        # Heuristic opponent targeting state
         self.opponent_target_mode = False
         self.opponent_target_queue = []
         self.opponent_target_hits = set()
         self.opponent_target_cells = set()
+        # RL agent exploration targetting state
+        self.rl_agent_target_mode = False
+        self.rl_agent_target_queue = []
+        self.rl_agent_target_hits = set()
+        self.rl_agent_target_cells = set()
 
         # Place ships
         self.place_opponent_ships()
@@ -186,6 +191,7 @@ class ReplayBuffer:
 class BattleshipEnv:
     def __init__(self):
         self.state = GameState()
+        self.done = False
 
     def reset(self):
         self.state.reset_all()
@@ -203,12 +209,12 @@ class BattleshipEnv:
     def step(self, action):
         if self.done:
             raise RuntimeError("Episode done; call reset().")
+        #from 1D array to 2D array
         r, c = divmod(int(action), GRID_SIZE)
         coord = (r, c)
-
         # Prevent duplicate actions
         if coord in self.state.player_hits_opponent or coord in self.state.player_misses_opponent:
-            return self._get_obs(), 0.0, self.done, {}
+            return self._get_obs(), -100, self.done, {}
 
         reward = 0.0
 
@@ -217,6 +223,7 @@ class BattleshipEnv:
         if hit:
             self.state.player_hits_opponent.add(coord)
             reward += 1.0
+            self.rl_agent_target_mode = True
             # Check and award sunk bonus once
             for idx, ship in enumerate(self.state.opponent_ships):
                 if coord in ship and idx not in self.state.sunk_ships_awarded_opponent:
@@ -226,7 +233,7 @@ class BattleshipEnv:
                     break
         else:
             self.state.player_misses_opponent.add(coord)
-            reward -= 0.1
+            reward -= 0.2
 
         # Check victory for player
         if all_opponent_ships_sunk(self.state):
@@ -288,17 +295,16 @@ class BattleshipEnv:
         if all_player_ships_sunk(self.state):
             reward -= 10.0
             self.done = True
-
         return self._get_obs(), reward, self.done, {}
 
 # --- Hyperparameters & Setup ---
 grid_cells = GRID_SIZE * GRID_SIZE
-epsilon_start, epsilon_end, epsilon_decay = 1.0, 0.35, 50000
+epsilon_start, epsilon_end, epsilon_decay = 1.0, 0.1, 50000
 gamma = 0.99
 lr = 1e-3
 batch_size = 64
 memory_size = 100000
-num_episodes = 5000
+num_episodes = 10000
 max_steps = GRID_SIZE * GRID_SIZE
 update_target_every = 100
 
@@ -316,35 +322,35 @@ def get_epsilon(step):
 steps_done = 0
 for ep in range(num_episodes):
     env = BattleshipEnv()
-    state = env.reset()
-    total_reward = 0.0
+    self = GameState()
+    if all_player_ships_sunk(self) or all_opponent_ships_sunk(self):
+        env.reset()
+    
+    total_reward=0
     
     for t in range(max_steps):
         eps = get_epsilon(steps_done)
-
-        # Build valid action mask
-        valid_mask = np.ones(grid_cells, dtype=bool)
-        for coord in env.state.player_hits_opponent:
-            valid_mask[coord[0]*GRID_SIZE + coord[1]] = False
-        for coord in env.state.player_misses_opponent:
-            valid_mask[coord[0]*GRID_SIZE + coord[1]] = False
-
-        if random.random() < eps:
-            # Pick a random move from valid options
-            available = [(i, j) for i in range(GRID_SIZE) for j in range(GRID_SIZE)
-                         if valid_mask[i * GRID_SIZE + j]]
-            action_coord = random.choice(available)
-            action = action_coord[0] * GRID_SIZE + action_coord[1]
+        #prob grid + guesses grid        
+        guesses = create_guesses_grid(env.state.player_hits_opponent, env.state.player_misses_opponent, GRID_SIZE)
+        prob = simple_probability_grid(guesses, SHIP_LENGTHS, GRID_SIZE)
+        if ep<5:
+            # Pick a the highest probability option
+            candidates = list(zip(*np.where(prob == prob.max())))
+            action_tuble = random.choice(candidates)
+            #from tuble (2D array) coord to 1D array
+            action = int(action_tuble[0] * GRID_SIZE + action_tuble[1])
         else:
             # Model-based action
-            q_vals = policy_net(tf.expand_dims(state, 0))[0].numpy()
-            q_vals[~valid_mask] = -np.inf
+            q_vals = policy_net(tf.expand_dims(prob, 0))[0].numpy()
+            q_vals[~guesses] = -np.inf
             action = int(np.argmax(q_vals))
+
         
         next_state, reward, done, _ = env.step(action)
+        
 
-        memory.push(state, action, reward, next_state, done)
-        state = next_state
+        memory.push(prob, action, reward, next_state, done)
+        prob = next_state
         total_reward += reward
         steps_done += 1
 
