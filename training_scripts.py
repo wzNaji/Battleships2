@@ -299,7 +299,7 @@ class BattleshipEnv:
 
 # --- Hyperparameters & Setup ---
 grid_cells = GRID_SIZE * GRID_SIZE
-epsilon_start, epsilon_end, epsilon_decay = 1.0, 0.1, 50000
+epsilon_start, epsilon_end, epsilon_decay = 1.0, 0.2, 200_000
 gamma = 0.99
 lr = 1e-3
 batch_size = 64
@@ -316,6 +316,7 @@ memory = ReplayBuffer(memory_size)
 
 # Epsilon schedule
 def get_epsilon(step):
+
     return epsilon_end + (epsilon_start - epsilon_end) * np.exp(-step / epsilon_decay)
 
 # --- Training loop ---
@@ -330,23 +331,43 @@ for ep in range(num_episodes):
     
     for t in range(max_steps):
         eps = get_epsilon(steps_done)
-        #prob grid + guesses grid        
-        guesses = create_guesses_grid(env.state.player_hits_opponent, env.state.player_misses_opponent, GRID_SIZE)
-        prob = simple_probability_grid(guesses, SHIP_LENGTHS, GRID_SIZE)
-        if ep<5:
-            # Pick a the highest probability option
-            candidates = list(zip(*np.where(prob == prob.max())))
-            action_tuble = random.choice(candidates)
-            #from tuble (2D array) coord to 1D array
-            action = int(action_tuble[0] * GRID_SIZE + action_tuble[1])
-        else:
-            # Model-based action
-            q_vals = policy_net(tf.expand_dims(prob, 0))[0].numpy()
-            q_vals[~guesses] = -np.inf
-            action = int(np.argmax(q_vals))
 
-        
+        # 1) build your prob & guesses grids
+        guesses = create_guesses_grid(
+            env.state.player_hits_opponent,
+            env.state.player_misses_opponent,
+            GRID_SIZE
+        )
+        prob = simple_probability_grid(guesses, SHIP_LENGTHS, GRID_SIZE)
+
+        # 2) first few episodes: pure heuristic
+        if ep < 500:
+            candidates = list(zip(*np.where(prob == prob.max())))
+            chosen = random.choice(candidates)
+            action = int(chosen[0] * GRID_SIZE + chosen[1])
+
+        # 3) afterwards: masked ε-greedy on Q-values
+        else:
+            # a) get raw Q-values
+            q_tensor = policy_net(tf.expand_dims(prob, axis=0))  # shape (1,49)
+            q_vals   = q_tensor[0].numpy()                        # shape (49,)
+
+            # b) mask out already-shot cells
+            flat_guesses = guesses.flatten()       # 49-long array of {0,1,2}
+            valid_idx    = (flat_guesses == 0)     # True == untried
+            masked_q     = q_vals.copy()
+            masked_q[~valid_idx] = -np.inf
+
+            # c) ε-greedy over the valid indices
+            if random.random() < eps:
+                choices = np.where(valid_idx)[0]  # list of untried 0–48
+                action  = int(random.choice(choices))
+            else:
+                action  = int(np.argmax(masked_q))
+
+        # 4) fire!
         next_state, reward, done, _ = env.step(action)
+
         
 
         memory.push(prob, action, reward, next_state, done)
