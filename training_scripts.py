@@ -257,7 +257,7 @@ class BattleshipEnv:
 
 # --- Hyperparameters & Setup ---
 grid_cells = GRID_SIZE * GRID_SIZE
-epsilon_start, epsilon_end, epsilon_decay = 1.0, 0.1, 50000
+epsilon_start, epsilon_end, epsilon_decay = 1.0, 0.35, 50000
 gamma = 0.99
 lr = 1e-3
 batch_size = 64
