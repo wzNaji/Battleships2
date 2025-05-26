@@ -7,18 +7,47 @@ from tensorflow.keras import layers, optimizers
 # --- Configuration ---
 GRID_SIZE = 7
 SHIP_LENGTHS = [4, 3, 2]
+Coordinate = tuple[int, int]
+Ships_dt = list[list[Coordinate]]
 
 # --- Helper functions for AI targeting ---
-def get_next_guess(grid_size, SHIP_LENGHTS, hits=None, misses=None):
-    """
-    Hunt mode: pick a random unknown cell, optionally using checkerboard parity.
-    """
-    all_cells = [(r, c) for r in range(grid_size) for c in range(grid_size)]
-    unknown = [cell for cell in all_cells if cell not in hits and cell not in misses]
-    # Use parity to improve efficiency
-    parity = [cell for cell in unknown if (cell[0] + cell[1]) % 2 == 0]
-    return random.choice(parity or unknown)
 
+def create_guesses_grid(hits: set[Coordinate], misses: set[Coordinate], grid_size: int):
+    guesses = np.zeros((grid_size, grid_size), dtype=int)
+    for x, y in hits:
+        guesses[x, y] = 2
+    for x, y in misses:
+        guesses[x, y] = 1
+    return guesses
+
+def simple_probability_grid(guesses, remaining_lengths, grid_size: int):
+    prob = np.zeros((grid_size, grid_size), dtype=int)
+    for length in remaining_lengths:
+        # horizontal
+        for r in range(grid_size):
+            for c in range(grid_size - length + 1):
+                span = guesses[r, c : c + length]
+                if 1 in span:
+                    continue
+                for i in range(length):
+                    if guesses[r, c + i] == 0:
+                        prob[r, c + i] += 1
+        # vertical
+        for c in range(grid_size):
+            for r in range(grid_size - length + 1):
+                span = guesses[r : r + length, c]
+                if 1 in span:
+                    continue
+                for i in range(length):
+                    if guesses[r + i, c] == 0:
+                        prob[r + i, c] += 1
+    return prob
+
+def get_next_guess(s, grid_size: int, remaining_lengths: list[int], hits, misses) -> Coordinate:
+    grid = create_guesses_grid(hits, misses, grid_size)
+    prob_grid = simple_probability_grid(grid, remaining_lengths, grid_size)
+    candidates = list(zip(*np.where(prob_grid == prob_grid.max())))
+    return random.choice(candidates)
 
 def enqueue_neighbors(coord, grid_size, hits, misses, queue):
     """
@@ -94,7 +123,10 @@ class GameState:
                     self.ships.append(coords)
                     placed = True
 
-# --- Game logic helper functions ---
+
+
+# --- ship checks logic helper functions ---
+
 def is_single_opponent_ship_sunken(state: GameState, coord: tuple[int,int]) -> bool:
     for ship in state.opponent_ships:
         if coord in ship:
@@ -117,6 +149,8 @@ def is_single_player_ship_sunken(state: GameState, coord: tuple[int,int]) -> boo
 def all_player_ships_sunk(state: GameState) -> bool:
     return all(all(cell in state.opponent_hits_player for cell in ship)
                for ship in state.ships)
+
+
 
 # --- DQN model and replay buffer ---
 class DQN(tf.keras.Model):
@@ -146,6 +180,7 @@ class ReplayBuffer:
 
     def __len__(self):
         return len(self.buffer)
+
 
 # --- Environment wrapper ---
 class BattleshipEnv:
@@ -207,10 +242,11 @@ class BattleshipEnv:
         else:
             s.opponent_target_mode = False
             opp_coord = get_next_guess(
+                s,
                 GRID_SIZE,
                 SHIP_LENGTHS,
                 hits=s.opponent_hits_player,
-                misses=s.opponent_misses_player
+                misses=s.opponent_misses_player,
             )
 
         # 2) fire
