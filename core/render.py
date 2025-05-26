@@ -1,6 +1,6 @@
 import streamlit as st
 from core.config import GRID_SIZE
-from core.game_logic.ship_checks import all_opponent_ships_sunk
+from core.game_logic.ship_checks import all_opponent_ships_sunk, is_single_opponent_ship_sunken
 
 
 def render_player_grid():
@@ -55,8 +55,11 @@ def render_opponent_grid():
                 if col.button("?", key=f"fire_{r}_{c}"):
                     if any(coord in ship for ship in ships):
                         st.session_state.player_hits_opponent.add(coord)
+                        if is_single_opponent_ship_sunken(coord):
+                            print("skib sunket")
                     else:
                         st.session_state.player_misses_opponent.add(coord)
+
 
                     if all_opponent_ships_sunk():
                         st.session_state.end_game_message = "U WON!"

@@ -4,7 +4,8 @@ import streamlit as st
 from core.config import SHIP_LENGTHS, GRID_SIZE
 from core.game_logic.ship_checks import (
     all_player_ships_sunk,
-    is_single_player_ship_sunken
+    is_single_player_ship_sunken,
+    is_single_opponent_ship_sunken
 )
 
 Coordinate = tuple[int, int]
@@ -18,7 +19,6 @@ opponent_ships: Ships_dt = []
 def player_ships_placement(cells: list[Coordinate]) -> bool:
     # ... your placement‐validation logic unchanged ...
     length = len(cells)
-    print(cells)
     if length not in SHIP_LENGTHS:
         raise ValueError(f"Invalid ship length {length}; must be one of {SHIP_LENGTHS}.")
     for cell in cells:
@@ -151,6 +151,7 @@ def opponent_move():
         enqueue_neighbors(coord)
         # if that ship is now sunk, clear target-mode data
         if is_single_player_ship_sunken(coord):
+            cells = is_single_player_ship_sunken(coord)
             st.session_state.target_mode = False
             st.session_state.target_queue.clear()
             st.session_state.target_ship_hits.clear()
@@ -166,8 +167,8 @@ def opponent_move():
 def reset_game():
     # clear out everything in session_state
     st.session_state.clear()
-    st.session_state['new_game'] = True
     ships.clear()
+    opponent_ships.clear()
     # re-run so that all your setdefault(...) calls fire again
     st.rerun()
 

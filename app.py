@@ -14,7 +14,7 @@ st.session_state.setdefault("current_turn", "player")
 st.session_state.setdefault("ships", [])
 st.session_state.setdefault("remaining", list(SHIP_LENGTHS))
 st.session_state.setdefault("placement_turn", "placement")
-st.session_state.setdefault("end_game_message", " ")
+st.session_state.setdefault("end_game_message", "")
 st.session_state.setdefault("player_hits_opponent", set())
 st.session_state.setdefault("player_misses_opponent", set())
 st.session_state.setdefault("opponent_hits_player", set())
@@ -26,14 +26,14 @@ st.session_state.setdefault("target_queue", [])        # queued coords to try in
 st.session_state.setdefault("target_ship_hits", set())  # coords hit on the current target ship
 st.session_state.setdefault("target_ship_cells", set()) # all coords of current target ship
 
-if st.session_state.get("new_game", False):
+if st.session_state.get("new_game", True):
     # Clear previous game data
     st.session_state['ships'] = []
     st.session_state['player_hits_opponent'] = set()
     st.session_state['player_misses_opponent'] = set()
     st.session_state['opponent_hits_player'] = set()
     st.session_state['opponent_misses_player'] = set()
-    st.session_state['end_game_message'] = " "
+    st.session_state['end_game_message'] = ""
     # You may also want to reset the opponent ships if starting fresh
     st.session_state['opponent_ships'] = []
     # Reset placement phase
@@ -72,7 +72,6 @@ if st.session_state.placement_turn == "placement":
         try:
             player_ships_placement(selected_cells)
             st.session_state.ships.append(list(selected_cells))
-            print(st.session_state.ships)
             st.session_state.remaining.pop(0)
             st.success(f"Placed {next_len}-cell ship at {selected_cells}")
             # clear checkboxes
@@ -95,13 +94,16 @@ if st.session_state.end_game_message != "U WON!":
     st.header("Fleet status")
 render_player_grid()
 
-# ——— Reset button ———
-if st.button("🔄 Restart Game"):
-    reset_game()
+
 # 2) Computer turn
 if st.session_state.current_turn == "computer" and not st.session_state.end_game_message:
     opponent_move()
     st.session_state.current_turn = "player"
     st.rerun()
+
+# ——— Reset button ———
+if st.button("🔄 Restart Game"):
+    reset_game()
+    st.session_state['new_game'] = True
 
 st.stop()
