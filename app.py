@@ -4,21 +4,30 @@ from core.game_logic.game_logic import (
     player_ships_placement,
     opponent_ships_placement,
     opponent_move,
-    reset_game
+    reset_game,
+    rl_agent_move
 )
 from core.render import render_opponent_grid, render_player_grid
 
 # --- Session‐state initialization ---
+
 st.session_state.setdefault("game_over_rerun_done", False)
 st.session_state.setdefault("current_turn", "player")
-st.session_state.setdefault("ships", [])
+
+st.session_state.setdefault("ships", []) # player ships
 st.session_state.setdefault("remaining", list(SHIP_LENGTHS))
+
 st.session_state.setdefault("placement_turn", "placement")
 st.session_state.setdefault("end_game_message", "")
 st.session_state.setdefault("player_hits_opponent", set())
 st.session_state.setdefault("player_misses_opponent", set())
 st.session_state.setdefault("opponent_hits_player", set())
 st.session_state.setdefault("opponent_misses_player", set())
+
+# --- for choice buttons of the heuristic and the rl_agent ---
+st.session_state.setdefault("heuristic_bot", True)
+st.session_state.setdefault("rl_agent_bot", False)
+
 
 # --- Target-mode AI state ---
 st.session_state.setdefault("target_mode", False)
@@ -34,7 +43,7 @@ if st.session_state.get("new_game", True):
     st.session_state['opponent_hits_player'] = set()
     st.session_state['opponent_misses_player'] = set()
     st.session_state['end_game_message'] = ""
-    # You may also want to reset the opponent ships if starting fresh
+    
     st.session_state['opponent_ships'] = []
     # Reset placement phase
     st.session_state['placement_turn'] = "placement"
@@ -42,6 +51,10 @@ if st.session_state.get("new_game", True):
     st.session_state['current_turn'] = "player"
     # Remove 'new_game' flag after reset
     st.session_state['new_game'] = False
+    # valg af knap
+    st.session_state['heuristic_bot'] = False
+    st.session_state['rl_agent_bot'] = False
+
 
 # Place opponent ships once
 if not st.session_state.get("opponent_ships"):
@@ -50,6 +63,7 @@ if not st.session_state.get("opponent_ships"):
 st.title("Battleship – 7×7")
 if st.session_state.get("end_game_message"):
     st.write(st.session_state.get("end_game_message"))
+
 # -------------------------------- Placement Phase --------------------------------
 if st.session_state.placement_turn == "placement":
     next_len = st.session_state.remaining[0]
@@ -86,24 +100,49 @@ if st.session_state.placement_turn == "placement":
     st.stop()
 
 # ----------------------------------- Battle Phase -----------------------------------
-# 1) Player turn: render opponent grid (fires), then player grid
-render_opponent_grid()
-st.write(" ")
-if st.session_state.end_game_message != "U WON!":
-    st.write("Your board")
-    st.header("Fleet status")
-render_player_grid()
+# buttons to choose enemy! basically en switch til state flag
+if st.button("Heuristic"):
+    st.session_state["heuristic_bot"] = True
+    st.session_state["rl_agent_bot"] = False
 
+elif st.button("RL_Agent (decent)"):
+    st.session_state["rl_agent_bot"] = True
+    st.session_state["heuristic_bot"] = False
 
-# 2) Computer turn
-if st.session_state.current_turn == "computer" and not st.session_state.end_game_message:
-    opponent_move()
-    st.session_state.current_turn = "player"
-    st.rerun()
+# spil mod heuristic hvis knappen til at switch state flag er true
+if st.session_state.get("heuristic_bot") and not st.session_state.get("rl_agent_bot"):
+    render_opponent_grid()  # indeholder endgame message check før render
+    st.write("------------------------------------------------------------------------")
+    render_player_grid()    # ^^
 
-# ——— Reset button ———
-if st.button("🔄 Restart Game"):
-    reset_game()
-    st.session_state['new_game'] = True
+    # 2) Computer turn
+    if st.session_state.current_turn == "computer" and not st.session_state.end_game_message:
+        opponent_move()
+        st.session_state.current_turn = "player"
+        st.rerun()
 
-st.stop()
+    # ——— Reset button ———
+    if st.button("🔄 Restart Game"):
+        st.session_state['new_game'] = True
+        reset_game()
+
+    st.stop()
+
+# spil mod rl_agent hvis knappen til at switch state flag er true
+if st.session_state.get("rl_agent_bot") and not st.session_state.get("heuristic_bot"):
+    render_opponent_grid()  # indeholder endgame message check før render
+    st.write("------------------------------------------------------------------------")
+    render_player_grid()    # ^^
+
+    # 2) RL-agent turn
+    if st.session_state.current_turn == "computer" and not st.session_state.end_game_message:
+        rl_agent_move()        # ← use your trained DQN here
+        st.session_state.current_turn = "player"
+        st.rerun()
+
+    # ——— Reset button ———
+    if st.button("🔄 Restart Game"):
+        reset_game()
+        st.session_state['new_game'] = True
+
+    st.stop()

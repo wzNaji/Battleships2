@@ -3,6 +3,8 @@ import numpy as np
 from collections import deque
 import tensorflow as tf
 from tensorflow.keras import layers, optimizers
+from collections import deque # se hyper params
+
 
 # --- Configuration ---
 GRID_SIZE = 7
@@ -297,104 +299,137 @@ class BattleshipEnv:
             self.done = True
         return self._get_obs(), reward, self.done, {}
 
-# --- Hyperparameters & Setup ---
-grid_cells = GRID_SIZE * GRID_SIZE
-epsilon_start, epsilon_end, epsilon_decay = 1.0, 0.2, 200_000
-gamma = 0.99
-lr = 1e-3
-batch_size = 64
-memory_size = 100000
-num_episodes = 10000
-max_steps = GRID_SIZE * GRID_SIZE
-update_target_every = 100
-
-policy_net = DQN(GRID_SIZE)
-target_net = DQN(GRID_SIZE)
-target_net.set_weights(policy_net.get_weights())
-optimizer = optimizers.Adam(lr)
-memory = ReplayBuffer(memory_size)
 
 # Epsilon schedule
 def get_epsilon(step):
-
     return epsilon_end + (epsilon_start - epsilon_end) * np.exp(-step / epsilon_decay)
 
-# --- Training loop ---
-steps_done = 0
-for ep in range(num_episodes):
-    env = BattleshipEnv()
-    self = GameState()
-    if all_player_ships_sunk(self) or all_opponent_ships_sunk(self):
-        env.reset()
-    
-    total_reward=0
-    
-    for t in range(max_steps):
-        eps = get_epsilon(steps_done)
+if __name__ == "__main__": # training loop kører kun hvis jeg kører filen specifict. guard kinda
+    # --- Hyperparameters & Setup ---
+    grid_cells = GRID_SIZE * GRID_SIZE
+    epsilon_start, epsilon_end, epsilon_decay = 1.0, 0.2, 200_000
+    gamma = 0.99
+    lr = 1e-3
+    batch_size = 64
+    memory_size = 100000
+    num_episodes = 300
+    max_steps = GRID_SIZE * GRID_SIZE
+    update_target_every = 100
 
-        # 1) build your prob & guesses grids
-        guesses = create_guesses_grid(
-            env.state.player_hits_opponent,
-            env.state.player_misses_opponent,
-            GRID_SIZE
-        )
-        prob = simple_probability_grid(guesses, SHIP_LENGTHS, GRID_SIZE)
+    policy_net = DQN(GRID_SIZE)
+    target_net = DQN(GRID_SIZE)
+    target_net.set_weights(policy_net.get_weights())
+    optimizer = optimizers.Adam(lr)
+    memory = ReplayBuffer(memory_size)
 
-        # 2) first few episodes: pure heuristic
-        if ep < 500:
-            candidates = list(zip(*np.where(prob == prob.max())))
-            chosen = random.choice(candidates)
-            action = int(chosen[0] * GRID_SIZE + chosen[1])
+    # --- statistics trackers ---
+    win_count      = 0
+    loss_count     = 0
+    hit4plus_count = 0
 
-        # 3) afterwards: masked ε-greedy on Q-values
-        else:
-            # a) get raw Q-values
-            q_tensor = policy_net(tf.expand_dims(prob, axis=0))  # shape (1,49)
-            q_vals   = q_tensor[0].numpy()                        # shape (49,)
+    window         = 100
+    recent_rewards = deque(maxlen=window)
+    recent_wins    = deque(maxlen=window)
 
-            # b) mask out already-shot cells
-            flat_guesses = guesses.flatten()       # 49-long array of {0,1,2}
-            valid_idx    = (flat_guesses == 0)     # True == untried
-            masked_q     = q_vals.copy()
-            masked_q[~valid_idx] = -np.inf
+    # --- Training loop ---
+    steps_done = 0
 
-            # c) ε-greedy over the valid indices
-            if random.random() < eps:
-                choices = np.where(valid_idx)[0]  # list of untried 0–48
-                action  = int(random.choice(choices))
+    for ep in range(num_episodes):
+        env = BattleshipEnv()
+        
+        total_reward=0
+        
+        for t in range(max_steps):
+            eps = get_epsilon(steps_done)
+
+            # 1) build your prob & guesses grids
+            guesses = create_guesses_grid(
+                env.state.player_hits_opponent,
+                env.state.player_misses_opponent,
+                GRID_SIZE
+            )
+            prob = simple_probability_grid(guesses, SHIP_LENGTHS, GRID_SIZE)
+
+            # 2) first few episodes: pure heuristic
+            if ep < 500:
+                candidates = list(zip(*np.where(prob == prob.max())))
+                chosen = random.choice(candidates)
+                action = int(chosen[0] * GRID_SIZE + chosen[1])
+
+            # 3) afterwards: masked ε-greedy on Q-values
             else:
-                action  = int(np.argmax(masked_q))
+                # a) get raw Q-values
+                q_tensor = policy_net(tf.expand_dims(prob, axis=0))  # shape (1,49)
+                q_vals   = q_tensor[0].numpy()                        # shape (49,)
 
-        # 4) fire!
-        next_state, reward, done, _ = env.step(action)
+                # b) mask out already-shot cells
+                flat_guesses = guesses.flatten()       # 49-long array of {0,1,2}
+                valid_idx    = (flat_guesses == 0)     # True == untried
+                masked_q     = q_vals.copy()
+                masked_q[~valid_idx] = -np.inf
 
+                # c) ε-greedy over the valid indices
+                if random.random() < eps:
+                    choices = np.where(valid_idx)[0]  # list of untried 0–48
+                    action  = int(random.choice(choices))
+                else:
+                    action  = int(np.argmax(masked_q))
+
+            # 4) fire!
+            next_state, reward, done, _ = env.step(action)
+            memory.push(prob, action, reward, next_state, done)
+            prob = next_state
+            total_reward += reward
+            steps_done += 1
+
+            if done:
+                break
+
+            # Update network
+            if len(memory) >= batch_size:
+                s_b, a_b, r_b, ns_b, d_b = memory.sample(batch_size)
+                with tf.GradientTape() as tape:
+                    q = policy_net(s_b)
+                    q_pred = tf.reduce_sum(q * tf.one_hot(a_b, grid_cells), axis=1)
+                    q_next = target_net(ns_b)
+                    q_next_max = tf.reduce_max(q_next, axis=1)
+                    q_target = r_b + (1 - d_b) * gamma * q_next_max
+                    loss = tf.reduce_mean(tf.square(q_pred - q_target))
+                grads = tape.gradient(loss, policy_net.trainable_variables)
+                optimizer.apply_gradients(zip(grads, policy_net.trainable_variables))
+
+        if ep % update_target_every == 0:
+            target_net.set_weights(policy_net.get_weights())
+            
         
+        # --- opdater stats ---
+        hits   = len(env.state.player_hits_opponent)
+        misses = len(env.state.player_misses_opponent)
+        shots  = hits + misses
+        won    = all_opponent_ships_sunk(env.state)
 
-        memory.push(prob, action, reward, next_state, done)
-        prob = next_state
-        total_reward += reward
-        steps_done += 1
+        if won:
+            win_count   += 1
+            recent_wins.append(1)
+        else:
+            loss_count  += 1
+            recent_wins.append(0)
 
-        # Update network
-        if len(memory) >= batch_size:
-            s_b, a_b, r_b, ns_b, d_b = memory.sample(batch_size)
-            with tf.GradientTape() as tape:
-                q = policy_net(s_b)
-                q_pred = tf.reduce_sum(q * tf.one_hot(a_b, grid_cells), axis=1)
-                q_next = target_net(ns_b)
-                q_next_max = tf.reduce_max(q_next, axis=1)
-                q_target = r_b + (1 - d_b) * gamma * q_next_max
-                loss = tf.reduce_mean(tf.square(q_pred - q_target))
-            grads = tape.gradient(loss, policy_net.trainable_variables)
-            optimizer.apply_gradients(zip(grads, policy_net.trainable_variables))
-        
-        if done:
-            break
+        if hits >= 4:
+            hit4plus_count += 1
 
-    if ep % update_target_every == 0:
-        target_net.set_weights(policy_net.get_weights())
-        
-    print(f"Episode {ep}, Reward: {total_reward:.2f}, Hits: {len(env.state.player_hits_opponent)}, Misses: {len(env.state.player_misses_opponent)}")
+        recent_rewards.append(total_reward)
 
-policy_net.save('battleship_dqn_tf_fixed.keras')
-print("Training complete, model saved to 'battleship_dqn_tf_fixed.keras'.")
+        efficiency = hits / shots if shots > 0 else 0.0
+        avg_rwd    = sum(recent_rewards) / len(recent_rewards)
+        win_rate   = 100 * sum(recent_wins) / len(recent_wins)
+
+        print(
+            f"Ep {ep:4d} | Rwd {total_reward:6.2f} | Hits {hits:2d} | Miss {misses:2d} "
+            f"| W/L {win_count}/{loss_count} | ≥4hit {hit4plus_count} "
+            f"| Eff {efficiency:4.2f} | AvgRwd[{window}] {avg_rwd:5.2f} | Win%[{window}] {win_rate:4.1f}%"
+        )
+
+    policy_net.save('battleship_dqn_tf_fixed.keras')
+    policy_net.save_weights("battleship_dqn.weights.h5")
+    print("Training complete, full model "".keras"" + weights saved "".weights.h5""")

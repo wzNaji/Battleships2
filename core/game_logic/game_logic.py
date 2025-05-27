@@ -1,12 +1,23 @@
 import random
+import tensorflow as tf
 import numpy as np
 import streamlit as st
 from core.config import SHIP_LENGTHS, GRID_SIZE
+from training_scripts import DQN
 from core.game_logic.ship_checks import (
     all_player_ships_sunk,
     is_single_player_ship_sunken,
     is_single_opponent_ship_sunken
 )
+
+@st.cache_resource
+def load_rl_model():
+    model = DQN(GRID_SIZE)
+    # build the model
+    _ = model(tf.zeros((1, GRID_SIZE, GRID_SIZE), dtype=tf.float32))
+    # load your HDF5 weights
+    model.load_weights("battleship_dqn.weights.h5")
+    return model
 
 Coordinate = tuple[int, int]
 Ships_dt = list[list[Coordinate]]
@@ -14,7 +25,6 @@ Ships_dt = list[list[Coordinate]]
 # these hold your placed ships
 ships: Ships_dt = []
 opponent_ships: Ships_dt = []
-
 
 def player_ships_placement(cells: list[Coordinate]) -> bool:
     # ... your placement‐validation logic unchanged ...
@@ -173,4 +183,41 @@ def reset_game():
     st.rerun()
 
 ### ML / AI Functions ###
+def rl_agent_move():
+    model = load_rl_model()   # cached, loader kun en gang til disk
 
+    # 1) Build the guess grid from the RL agent’s own history
+    hits   = st.session_state.opponent_hits_player
+    misses = st.session_state.opponent_misses_player
+
+    guesses = create_guesses_grid(hits, misses, GRID_SIZE)
+    prob    = simple_probability_grid(guesses, SHIP_LENGTHS, GRID_SIZE)
+
+    # 2) Get Q-values from the model
+    q_vals = model.predict(prob[np.newaxis, ...])[0]  # shape (49,)
+
+    # 3) Mask out already‐tried cells
+    flat_guesses = guesses.flatten()
+    q_vals[flat_guesses != 0] = -np.inf
+
+    # 4) Pick the best action
+    action = int(np.argmax(q_vals))
+    r, c   = divmod(action, GRID_SIZE)
+    coord  = (r, c)
+
+    # 5) “Fire” at the human’s ships
+    if any(coord in ship for ship in st.session_state.ships):
+        st.session_state.opponent_hits_player.add(coord)
+        # (handle sunk if you like)
+    else:
+        st.session_state.opponent_misses_player.add(coord)
+
+    # 6) Check for human defeat
+    if all(
+        all(cell in st.session_state.opponent_hits_player for cell in ship)
+        for ship in st.session_state.ships
+    ):
+        st.session_state.end_game_message = "COMPUTER WINS!"
+
+    # 7) Hand control back to the human
+    st.session_state.current_turn = "player"
