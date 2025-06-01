@@ -110,6 +110,7 @@ class GameState:
                     coords = [(r + i, c) for i in range(length)]
                 if not any(coord in cell for cell in self.opponent_ships for coord in coords):
                     self.opponent_ships.append(coords)
+                    #burde have gemt som liste af skibe - ligesom remaining_lenghts eller finde skibet ud fra coords og fjerne den derefter
                     placed = True
 
     def place_player_ships(self):
@@ -227,6 +228,7 @@ class BattleshipEnv:
             reward += 1.0
             self.rl_agent_target_mode = True
             # Check and award sunk bonus once
+            #burde bruge is_single_opponent_ship_sunken() og fjerne skib fra remaining lenghts
             for idx, ship in enumerate(self.state.opponent_ships):
                 if coord in ship and idx not in self.state.sunk_ships_awarded_opponent:
                     if all(cell in self.state.player_hits_opponent for cell in ship):
@@ -355,7 +357,9 @@ if __name__ == "__main__": # training loop kører kun hvis jeg kører filen spec
                 candidates = list(zip(*np.where(prob == prob.max())))
                 chosen = random.choice(candidates)
                 action = int(chosen[0] * GRID_SIZE + chosen[1])
-
+                #mangler target mode - derfor kun vinder omkring 30% af tiden og ikke 50%
+                #mangler opdatering probability grid, når skibe sænkes
+                #mangler reward for at ramme coord i candidates (at ramme højeste probability burde give reward)
             # 3) afterwards: masked ε-greedy on Q-values
             else:
                 # a) get raw Q-values
